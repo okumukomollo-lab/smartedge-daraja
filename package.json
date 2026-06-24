@@ -4,6 +4,6 @@
   "private": true,
   "description": "M-Pesa Daraja STK Push backend for SmartEdge Online School & Exams",
   "dependencies": {
-    "@vercel/kv": "^1.0.1"
+    "@supabase/supabase-js": "^2.45.0"
   }
 }
