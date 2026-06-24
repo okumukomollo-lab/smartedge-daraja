@@ -1,43 +1,60 @@
 // api/_store.js
-// Tiny storage abstraction for STK push state, keyed by CheckoutRequestID.
+// Durable storage for STK push / Paystack charge pending state, keyed
+// exactly the same way the old in-memory version was (e.g. 'stk:xxx', 'ps_xxx').
 //
-// In production on Vercel, set up Vercel KV (or Upstash Redis) and it will be
-// used automatically. Without it, falls back to an in-memory Map — this works
-// for quick testing but resets on every cold start / deploy, and won't work
-// reliably across multiple serverless instances. For real production use,
-// connect Vercel KV (Storage tab in your Vercel project → Create Database → KV).
+// REPLACES the old in-memory Map. The old version reset on every cold
+// start and wasn't shared across serverless instances, which caused
+// "payment succeeded but app never found out" bugs — STK push would run
+// on one instance, the callback/poll would land on a different instance
+// with an empty Map, and the pending record was simply gone.
 //
-// ENV VARS (optional, only needed for Vercel KV):
-//   KV_REST_API_URL
-//   KV_REST_API_TOKEN
+// This version stores the same key -> record data in Supabase instead,
+// so any instance can find any other instance's pending record.
+//
+// Function names/signatures are UNCHANGED from the old _store.js, so
+// stk-push.js, callback.js, status.js, paystack-charge.js, and
+// paystack-status.js all keep working without any changes.
+//
+// ENV VARS REQUIRED:
+//   SUPABASE_URL
+//   SUPABASE_SERVICE_ROLE_KEY
 
-const memoryStore = new Map();
+const { createClient } = require('@supabase/supabase-js');
 
-async function hasKV() {
-  return !!(process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN);
-}
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
 
-async function savePending(checkoutRequestId, record) {
-  if (await hasKV()) {
-    const { kv } = require('@vercel/kv');
-    await kv.set(`stk:${checkoutRequestId}`, record, { ex: 60 * 30 }); // expire in 30 min
-    return;
+async function savePending(key, record) {
+  const { error } = await supabase
+    .from('pending_payments')
+    .upsert({ key: String(key), record }, { onConflict: 'key' });
+
+  if (error) {
+    console.error('_store.savePending error', error);
+    throw new Error('Failed to save pending payment record');
   }
-  memoryStore.set(checkoutRequestId, record);
 }
 
-async function getRecord(checkoutRequestId) {
-  if (await hasKV()) {
-    const { kv } = require('@vercel/kv');
-    return (await kv.get(`stk:${checkoutRequestId}`)) || null;
+async function getRecord(key) {
+  const { data, error } = await supabase
+    .from('pending_payments')
+    .select('record')
+    .eq('key', String(key))
+    .maybeSingle();
+
+  if (error) {
+    console.error('_store.getRecord error', error);
+    return null;
   }
-  return memoryStore.get(checkoutRequestId) || null;
+  return data ? data.record : null;
 }
 
-async function updateRecord(checkoutRequestId, patch) {
-  const existing = (await getRecord(checkoutRequestId)) || {};
+async function updateRecord(key, patch) {
+  const existing = (await getRecord(key)) || {};
   const updated = { ...existing, ...patch };
-  await savePending(checkoutRequestId, updated);
+  await savePending(key, updated);
   return updated;
 }
 
