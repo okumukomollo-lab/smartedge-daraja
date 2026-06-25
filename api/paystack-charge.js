@@ -78,6 +78,9 @@ module.exports = async (req, res) => {
 
     const psData = await psRes.json();
 
+    // DEBUG: log Paystack's actual response so we can see their real error
+    console.log('DEBUG: Paystack response =', JSON.stringify(psData));
+
     if (!psRes.ok || !psData.status) {
       return res.status(400).json({
         success: false,
