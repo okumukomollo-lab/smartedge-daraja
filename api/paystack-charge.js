@@ -62,6 +62,9 @@ module.exports = async (req, res) => {
     // so we use example.com (reserved by RFC 2606 for placeholder use).
     const customerEmail = email && email.includes('@') ? email : `${intlPhone.replace('+', '')}@example.com`;
 
+    console.log('DEBUG: customerEmail =', JSON.stringify(customerEmail));
+    console.log('DEBUG: intlPhone =', JSON.stringify(intlPhone));
+
     const reference = `${source || 'pay'}_${Date.now()}`;
 
     const payload = {
@@ -90,6 +93,8 @@ module.exports = async (req, res) => {
     });
 
     const psData = await psRes.json();
+
+    console.log('DEBUG: Paystack response =', JSON.stringify(psData));
 
     if (!psRes.ok || !psData.status) {
       return res.status(400).json({
