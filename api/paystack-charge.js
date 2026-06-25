@@ -1,22 +1,8 @@
 // api/paystack-charge.js
-// POST endpoint: initiates an M-PESA payment via Paystack's "Pay with M-PESA"
-// mobile money channel. This is a faster-to-launch alternative to direct
-// Daraja STK push, useful while waiting on Safaricom's Till/Paybill
-// production approval (which involves a separate business paperwork process).
-//
-// REQUEST BODY (JSON):
-//   { phone: "0712345678", amount: 100, email: "name@example.com", accountRef: "JSS/2024/001", source: "smartedge" }
-//   (email is required by Paystack even though it's not really used for M-Pesa;
-//    if you don't collect emails, generate a placeholder like `${phone}@chiefbookclub.local`)
-//
-// RESPONSE (success):
-//   { success: true, reference: "...", status: "pay_offline", displayText: "..." }
-// The frontend should show displayText to the user (e.g. "Enter your PIN"),
-// then poll /api/paystack-status?reference=... to find out when it completes.
-//
-// ENV VARS REQUIRED:
-//   PAYSTACK_SECRET_KEY  - from your Paystack dashboard (Settings -> API Keys & Webhooks)
-//                          Use the TEST key while developing, LIVE key once verified.
+// TEMPORARY DEBUG VERSION — adds console.log so we can see exactly what
+// phone value arrives and what normalizePhone() produces, visible in
+// Vercel's runtime logs. Once the bug is found, remove the console.log
+// lines (marked with "DEBUG:") and this goes back to normal.
 
 const PAYSTACK_BASE_URL = 'https://api.paystack.co';
 
@@ -39,8 +25,17 @@ module.exports = async (req, res) => {
   try {
     const { phone, amount, email, accountRef, description, source } = req.body || {};
 
+    // DEBUG: log exactly what we received, raw, before any processing
+    console.log('DEBUG: req.body =', JSON.stringify(req.body));
+    console.log('DEBUG: typeof phone =', typeof phone, '| phone value =', JSON.stringify(phone));
+
     const localPhone = normalizePhone(phone);
+
+    // DEBUG: log what normalizePhone produced
+    console.log('DEBUG: normalizePhone result =', JSON.stringify(localPhone));
+
     if (!localPhone) {
+      console.log('DEBUG: REJECTED — localPhone was falsy');
       return res.status(400).json({ success: false, error: 'Invalid phone number. Use format 07XXXXXXXX.' });
     }
     const amt = Math.round(Number(amount));
@@ -53,15 +48,12 @@ module.exports = async (req, res) => {
       return res.status(500).json({ success: false, error: 'Server misconfigured: missing PAYSTACK_SECRET_KEY' });
     }
 
-    // Paystack requires an email even for mobile money charges. If the app
-    // doesn't collect one, fall back to a harmless placeholder tied to the phone.
     const customerEmail = email && email.includes('@') ? email : `${localPhone}@payer.local`;
-
     const reference = `${source || 'pay'}_${Date.now()}`;
 
     const payload = {
       email: customerEmail,
-      amount: amt * 100, // Paystack uses the smallest currency unit (cents/kobo equivalent)
+      amount: amt * 100,
       currency: 'KES',
       reference,
       mobile_money: {
@@ -93,7 +85,6 @@ module.exports = async (req, res) => {
       });
     }
 
-    // Store a pending record so the status endpoint and webhook can find it.
     const { savePending } = require('./_store');
     await savePending(`ps_${reference}`, {
       status: 'pending',
@@ -109,7 +100,7 @@ module.exports = async (req, res) => {
     return res.status(200).json({
       success: true,
       reference,
-      status: psData.data?.status, // usually "pay_offline" or "send_otp"
+      status: psData.data?.status,
       displayText: psData.data?.display_text || 'Check your phone to complete payment.',
       message: 'Charge initiated. Check your phone to complete payment.',
     });
