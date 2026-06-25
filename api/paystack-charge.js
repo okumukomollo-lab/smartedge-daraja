@@ -57,9 +57,10 @@ module.exports = async (req, res) => {
       return res.status(500).json({ success: false, error: 'Server misconfigured: missing PAYSTACK_SECRET_KEY' });
     }
 
-    // Paystack requires an email even for mobile money charges. If the app
-    // doesn't collect one, fall back to a harmless placeholder tied to the phone.
-    const customerEmail = email && email.includes('@') ? email : `${intlPhone.replace('+', '')}@payer.local`;
+    // Paystack requires an email even for mobile money charges, and validates
+    // that it's a plausible format/domain. ".local" was rejected as invalid,
+    // so we use example.com (reserved by RFC 2606 for placeholder use).
+    const customerEmail = email && email.includes('@') ? email : `${intlPhone.replace('+', '')}@example.com`;
 
     const reference = `${source || 'pay'}_${Date.now()}`;
 
